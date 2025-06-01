@@ -14,6 +14,10 @@
 #include <string.h>
 #include <time.h>
 #include <crypto.h>
+#include <unistd.h>
+
+#define PRIVATE_KEY_FILE "rsa_private.pem"
+#define SIGNATURE_FILE   "sha256.sig"
 
 // executable signature ("magic word")
 const uint32_t signature = 0x4788CAFE;
@@ -279,8 +283,8 @@ int main(int argc, char *argv[]) {
       "\n"
       "constant bootloader_init_size_c  : natural := %lu; -- bytes\n"
       "constant bootloader_init_image_c : mem32_t := (\n",
-      // take into account space occupied by SHA256 hash (32 bytes) and size of bootloader int (4 bytes)
-      argv[4], argv[2], compile_time, raw_exe_size + 36);
+      // take into account space occupied by RSA2048 (256 bytes) and size of bootloader int (4 bytes)
+      argv[4], argv[2], compile_time, raw_exe_size + 260);
     fputs(tmp_string, output);
 
     i = 0;
@@ -347,13 +351,56 @@ int main(int argc, char *argv[]) {
     sha256(input_buf, input_size, sha256_digest);
     free(input_buf);
 
-    // Output 8 32-bit words of SHA256
-    for (int j = 0; j < 8; j++) {
-      snprintf(tmp_string, sizeof(tmp_string), "x\"%08x\",\n", sha256_digest[j]);
-      fputs(tmp_string, output);
-    }
+    // After computing sha256_digest
+// Write digest to a temp file
+FILE *digest_file = fopen("sha256.bin", "wb");
+if (!digest_file) {
+  printf("Failed to open temp digest file!\n");
+  // handle error...
+}
+for (int j = 0; j < 8; j++) {
+  uint32_t word = sha256_digest[j];
+  fwrite(&word, sizeof(uint32_t), 1, digest_file);
+}
+fclose(digest_file);
+
+// Sign the digest using openssl CLI
+char cmd[256];
+snprintf(cmd, sizeof(cmd),
+  "openssl dgst -sha256 -sign %s -out %s sha256.bin",
+  PRIVATE_KEY_FILE, SIGNATURE_FILE);
+int ret = system(cmd);
+if (ret != 0) {
+  printf("OpenSSL signing failed!\n");
+  // handle error...
+}
+
+// Read the signature back
+FILE *sig_file = fopen(SIGNATURE_FILE, "rb");
+if (!sig_file) {
+  printf("Failed to open signature file!\n");
+  // handle error...
+}
+unsigned char signature[256]; // RSA2048 signature is 256 bytes
+size_t sig_len = fread(signature, 1, sizeof(signature), sig_file);
+fclose(sig_file);
+
+// Clean up temp files
+unlink("sha256.bin");
+unlink(SIGNATURE_FILE);
+
+// Output the signature as hex words (or however you want)
+for (size_t k = 0; k < sig_len; k += 4) {
+  uint32_t word = 0;
+  for (int b = 0; b < 4 && (k + b) < sig_len; b++) {
+    word |= ((uint32_t)signature[k + b]) << (8 * b);
+  }
+  snprintf(tmp_string, sizeof(tmp_string), "x\"%08x\",\n", word);
+  fputs(tmp_string, output);
+}
+
     // Output 9th word: input size in words
-    snprintf(tmp_string, sizeof(tmp_string), "x\"%08x\" -- Input size in 32-bit word\n", input_words);
+    snprintf(tmp_string, sizeof(tmp_string), "x\"%08x\" -- Bootloader code size\n", input_words);
     fputs(tmp_string, output);
 
     snprintf(tmp_string, sizeof(tmp_string),

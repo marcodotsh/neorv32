@@ -31,3 +31,4 @@ sw/image_gen/image_gen
 # generated documentation stuff
 /docs/doxygen_build/
 /docs/public/
+sw/bootloader/rsa_private.pem

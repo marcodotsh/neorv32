@@ -63,6 +63,8 @@ NEORV32_INC_PATH = $(NEORV32_HOME)/sw/lib/include
 NEORV32_SRC_PATH = $(NEORV32_HOME)/sw/lib/source
 # Path to NEORV32 executable generator
 NEORV32_EXG_PATH = $(NEORV32_HOME)/sw/image_gen
+# Path to NEORV32 bootloader folder
+NEORV32_BTL_PATH = $(NEORV32_HOME)/sw/bootloader
 # Path to NEORV32 rtl folder
 NEORV32_RTL_PATH = $(NEORV32_HOME)/rtl
 # Path to NEORV32 sim folder
@@ -145,6 +147,11 @@ NEO_CXXFLAGS = $(CC_FLAGS) $(CXXFLAGS)
 NEO_LDFLAGS  = $(CC_FLAGS) $(LDFLAGS)
 NEO_ASFLAGS  = $(CC_FLAGS) $(ASFLAGS)
 
+# Secure Boot keypair variables
+KEY_DIR := $(NEORV32_BTL_PATH)
+PRIVATE_KEY := $(KEY_DIR)/rsa_private.pem
+PUBLIC_KEY  := $(KEY_DIR)/rsa_public.pem
+
 # -----------------------------------------------------------------------------
 # Application output definitions
 # -----------------------------------------------------------------------------
@@ -162,6 +169,10 @@ mem:     $(APP_MEM)
 mif:     $(APP_MIF)
 image:   $(APP_VHD)
 install: image install-$(APP_VHD)
+keypair: $(PRIVATE_KEY) $(PUBLIC_KEY)
+pubkey: $(PUBLIC_KEY)
+clean_keys:
+	$(Q)$(RM) -f $(PRIVATE_KEY) $(PUBLIC_KEY)
 all:     $(APP_ELF) $(APP_ASM) $(APP_EXE) $(APP_HEX) $(APP_BIN) $(APP_COE) $(APP_MEM) $(APP_MIF) $(APP_VHD) install hex bin
 
 # -----------------------------------------------------------------------------
@@ -183,6 +194,13 @@ endif
 # -----------------------------------------------------------------------------
 # Image generator targets
 # -----------------------------------------------------------------------------
+
+# RSA keypair generation
+$(PRIVATE_KEY):
+	$(Q)openssl genpkey -algorithm RSA -out $(PRIVATE_KEY) -pkeyopt rsa_keygen_bits:2048
+
+$(PUBLIC_KEY): $(PRIVATE_KEY)
+	$(Q)openssl rsa -pubout -in $(PRIVATE_KEY) -out $(PUBLIC_KEY)
 
 # Compile image generator
 $(IMAGE_GEN): $(NEORV32_EXG_PATH)/image_gen.c $(NEORV32_SRC_PATH)/crypto.c
@@ -241,7 +259,7 @@ $(APP_EXE): $(BIN_MAIN) $(IMAGE_GEN)
 	$(Q)$(WC) -c < $(APP_EXE)
 
 # Generate NEORV32 executable VHDL boot image
-$(APP_VHD): $(BIN_MAIN) $(IMAGE_GEN)
+$(APP_VHD): $(BIN_MAIN) $(IMAGE_GEN) $(PRIVATE_KEY)
 	$(Q)$(SET) -e
 	$(ECHO) "Generating $(APP_VHD)"
 	$(Q)$(IMAGE_GEN) -app_vhd $< $@ $(shell basename $(CURDIR))
@@ -281,7 +299,7 @@ $(APP_MEM): $(BIN_MAIN) $(IMAGE_GEN)
 # -----------------------------------------------------------------------------
 
 # Create local VHDL BOOTROM image
-bl_image: $(BIN_MAIN) $(IMAGE_GEN)
+bl_image: $(BIN_MAIN) $(IMAGE_GEN) $(PRIVATE_KEY)
 	$(Q)$(SET) -e
 	$(ECHO) "Generating $(BOOT_VHD)"
 	$(Q)$(IMAGE_GEN) -bld_vhd $< $(BOOT_VHD) $(shell basename $(CURDIR))

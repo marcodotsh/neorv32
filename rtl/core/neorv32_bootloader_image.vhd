@@ -1,7 +1,7 @@
 -- The NEORV32 RISC-V Processor - github.com/stnolting/neorv32
 -- Auto-generated memory initialization image (for internal BOOTROM)
 -- Source: bootloader/build/main.bin
--- Built: 01.06.2025 14:37:13
+-- Built: 01.06.2025 15:52:13
 
 library ieee;
 use ieee.std_logic_1164.all;
@@ -11,7 +11,7 @@ use neorv32.neorv32_package.all;
 
 package neorv32_bootloader_image is
 
-constant bootloader_init_size_c  : natural := 3992; -- bytes
+constant bootloader_init_size_c  : natural := 4216; -- bytes
 constant bootloader_init_image_c : mem32_t := (
 x"f14020f3",
 x"80200217",
@@ -1004,15 +1004,71 @@ x"62613938",
 x"66656463"
 );
 constant bootloader_init_secure_boot_info_c : mem32_t := (
-x"8beaa95c",
-x"dcd2893f",
-x"c0a0493f",
-x"5588221a",
-x"d992a2ba",
-x"e8aced70",
-x"e37a6330",
-x"d7f66551",
-x"000003dd" -- Input size in 32-bit word
+x"37b5e63f",
+x"b747fc5a",
+x"d97aa709",
+x"41086bc6",
+x"3de6df7e",
+x"d3dc1a2e",
+x"a0835c8c",
+x"8d8d9ea8",
+x"29a9380f",
+x"4c744374",
+x"38f5a59f",
+x"c88d9aa7",
+x"9cfa56cb",
+x"6a14a044",
+x"2a98a572",
+x"c7c26570",
+x"6fef2390",
+x"21fd93f4",
+x"f7515c33",
+x"246cfca4",
+x"779a31fb",
+x"97631119",
+x"64c404d8",
+x"fcb375b5",
+x"1c8ee8b5",
+x"77286e83",
+x"c85f5a5f",
+x"820f1dd6",
+x"7824361f",
+x"22a2a6e7",
+x"cb9c43e7",
+x"9c938cae",
+x"3310f1ff",
+x"d0e5d17e",
+x"eda5bca7",
+x"0157d0d9",
+x"05e89f3a",
+x"0fc504e4",
+x"95f2dcd5",
+x"3ff6d087",
+x"e693a3ba",
+x"dd4db5a0",
+x"9a397d21",
+x"38f7d033",
+x"aa03254a",
+x"f91a61b4",
+x"f733455e",
+x"3e20fb63",
+x"ffa0c331",
+x"01d2c335",
+x"dff9296c",
+x"954eb09a",
+x"b0295373",
+x"43ef8084",
+x"057ec71d",
+x"e752c35a",
+x"9ab060b3",
+x"f5254933",
+x"7b91e5a4",
+x"a0a9aa97",
+x"d2a6b341",
+x"13ceace7",
+x"b3168f8c",
+x"313b3a67",
+x"000003dd" -- Bootloader code size
 );
 
 end neorv32_bootloader_image;
