@@ -13,6 +13,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+#include <crypto.h>
 
 // executable signature ("magic word")
 const uint32_t signature = 0x4788CAFE;
@@ -278,7 +279,8 @@ int main(int argc, char *argv[]) {
       "\n"
       "constant bootloader_init_size_c  : natural := %lu; -- bytes\n"
       "constant bootloader_init_image_c : mem32_t := (\n",
-      argv[4], argv[2], compile_time, raw_exe_size);
+      // take into account space occupied by SHA256 hash (32 bytes) and size of bootloader int (4 bytes)
+      argv[4], argv[2], compile_time, raw_exe_size + 36);
     fputs(tmp_string, output);
 
     i = 0;
@@ -311,9 +313,55 @@ int main(int argc, char *argv[]) {
       printf("Unexpected input file end!\n");
     }
 
+    snprintf(tmp_string, sizeof(tmp_string),
+      ");\n");
+    fputs(tmp_string, output);
+
+    snprintf(tmp_string, sizeof(tmp_string),
+      "constant bootloader_init_secure_boot_info_c : mem32_t := (\n");
+    fputs(tmp_string, output);
+
+    // read again input from the start, compute SHA256 and put it here
+    // and compute it in the same format as above (32-bit words in hex)
+    // this means we have 8 32-bit words
+    // then add a ninth 32-bit word that is in hex the raw_exe_size / 4,
+    // that is the size of the input instructions in words
+
+    // --- SHA256 calculation ---
+    rewind(input);
+    unsigned char *input_buf = (unsigned char*)malloc(input_size);
+    if (input_buf == NULL) {
+      printf("Memory allocation failed!\n");
+      fclose(input);
+      fclose(output);
+      return -5;
+    }
+    if (fread(input_buf, 1, input_size, input) != input_size) {
+      printf("Failed to read input file for SHA256!\n");
+      free(input_buf);
+      fclose(input);
+      fclose(output);
+      return -6;
+    }
+    uint32_t sha256_digest[8];
+    sha256(input_buf, input_size, sha256_digest);
+    free(input_buf);
+
+    // Output 8 32-bit words of SHA256
+    for (int j = 0; j < 8; j++) {
+      snprintf(tmp_string, sizeof(tmp_string), "x\"%08x\",\n", sha256_digest[j]);
+      fputs(tmp_string, output);
+    }
+    // Output 9th word: input size in words
+    snprintf(tmp_string, sizeof(tmp_string), "x\"%08x\" -- Input size in 32-bit word\n", input_words);
+    fputs(tmp_string, output);
+
+    snprintf(tmp_string, sizeof(tmp_string),
+      ");\n");
+    fputs(tmp_string, output);
+
     // end
     snprintf(tmp_string, sizeof(tmp_string),
-      ");\n"
       "\n"
       "end neorv32_bootloader_image;\n");
     fputs(tmp_string, output);

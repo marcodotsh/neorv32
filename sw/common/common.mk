@@ -33,7 +33,7 @@ BUILD_DIR ?= build
 EFFORT ?= -Os
 
 # Compiler toolchain prefix
-RISCV_PREFIX ?= riscv-none-elf-
+RISCV_PREFIX ?= riscv32-unknown-elf-
 
 # CPU architecture and ABI
 MARCH ?= rv32i_zicsr_zifencei
@@ -185,9 +185,9 @@ endif
 # -----------------------------------------------------------------------------
 
 # Compile image generator
-$(IMAGE_GEN): $(NEORV32_EXG_PATH)/image_gen.c
+$(IMAGE_GEN): $(NEORV32_EXG_PATH)/image_gen.c $(NEORV32_SRC_PATH)/crypto.c
 	$(ECHO) Compiling image generator...
-	$(Q)$(CC_HOST) $< -o $(IMAGE_GEN)
+	$(Q)$(CC_HOST) -I $(NEORV32_INC_PATH) $^ -o $(IMAGE_GEN)
 
 # -----------------------------------------------------------------------------
 # General targets: Assemble, compile, link, dump
