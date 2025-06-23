@@ -412,6 +412,70 @@ for (size_t k = 0; k < sig_len; k += 4) {
       "\n"
       "end neorv32_bootloader_image;\n");
     fputs(tmp_string, output);
+
+
+    // --- Generate neorv32_secure_boot_checker_verification_image.vhd ---
+
+    // Extract modulus (n) in hex
+    FILE *fp = popen("openssl rsa -pubin -in rsa_public.pem -modulus -noout 2>/dev/null | cut -d'=' -f2", "r");
+    if (!fp) {
+      fprintf(stderr, "ERROR: Could not extract modulus from rsa_public.pem\n");
+      return 1;
+    }
+    char modulus_hex[5200] = {0}; // Enough for 2048 bits (512 bytes) + null
+    if (fgets(modulus_hex, sizeof(modulus_hex), fp) == NULL) {
+      pclose(fp);
+      fprintf(stderr, "ERROR: Could not read modulus from openssl output\n");
+      return 1;
+    }
+    pclose(fp);
+
+    // Remove newline if present
+    size_t len = strlen(modulus_hex);
+    if (len > 0 && modulus_hex[len-1] == '\n') modulus_hex[len-1] = 0;
+
+    // Extract exponent (e) in decimal, then convert to hex
+    fp = popen("openssl rsa -pubin -in rsa_public.pem -text -noout 2>/dev/null | grep 'Exponent:' | awk '{print $2}'", "r");
+    if (!fp) {
+      fprintf(stderr, "ERROR: Could not extract exponent from rsa_public.pem\n");
+      return 1;
+    }
+    char exponent_dec[32] = {0};
+    if (fgets(exponent_dec, sizeof(exponent_dec), fp) == NULL) {
+      pclose(fp);
+      fprintf(stderr, "ERROR: Could not read exponent from openssl output\n");
+      return 1;
+    }
+    pclose(fp);
+
+    // Remove newline if present
+    len = strlen(exponent_dec);
+    if (len > 0 && exponent_dec[len-1] == '\n') exponent_dec[len-1] = 0;
+
+    // Convert exponent to hex
+    unsigned long exponent_val = strtoul(exponent_dec, NULL, 10);
+    char exponent_hex[32];
+    snprintf(exponent_hex, sizeof(exponent_hex), "%lX", exponent_val);
+
+    // Write VHDL file
+    FILE *vhd_fp = fopen("neorv32_secure_boot_checker_verification_image.vhd", "w");
+    if (!vhd_fp) {
+      fprintf(stderr, "ERROR: Could not open neorv32_secure_boot_checker_verification_image.vhd for writing\n");
+      return 1;
+    }
+    fprintf(vhd_fp, "-- This file is auto-generated. Do not edit.\n");
+    fprintf(vhd_fp, "library ieee;\nuse ieee.std_logic_1164.all;\nuse ieee.numeric_std.all;\n\n");
+    fprintf(vhd_fp, "package neorv32_secure_boot_checker_verification_image is\n");
+
+    // Modulus: 2048 bits = 256 bytes = 512 hex digits
+    fprintf(vhd_fp, "  constant rsa_modulus : std_logic_vector(2047 downto 0) := x\"%s\";\n", modulus_hex);
+
+    // Exponent: variable size, but usually 3 or 65537
+    int exp_bits = strlen(exponent_hex) * 4;
+    fprintf(vhd_fp, "  constant rsa_public_exponent : std_logic_vector(%d downto 0) := x\"%s\";\n", exp_bits-1, exponent_hex);
+
+    fprintf(vhd_fp, "end neorv32_secure_boot_checker_verification_image;\n");
+    fclose(vhd_fp);
   }
 
 
