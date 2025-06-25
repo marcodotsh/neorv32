@@ -463,9 +463,23 @@ for (size_t k = 0; k < sig_len; k += 4) {
       fprintf(stderr, "ERROR: Could not open neorv32_secure_boot_checker_verification_image.vhd for writing\n");
       return 1;
     }
-    fprintf(vhd_fp, "-- This file is auto-generated. Do not edit.\n");
-    fprintf(vhd_fp, "library ieee;\nuse ieee.std_logic_1164.all;\nuse ieee.numeric_std.all;\n\n");
-    fprintf(vhd_fp, "package neorv32_secure_boot_checker_verification_image is\n");
+
+    // header
+    snprintf(tmp_string, sizeof(tmp_string),
+      "-- The NEORV32 RISC-V Processor - github.com/stnolting/neorv32\n"
+      "-- Auto-generated RSA public key initialization image (for secure boot checker)\n"
+      "-- Built: %s\n"
+      "\n"
+      "library ieee;\n"
+      "use ieee.std_logic_1164.all;\n"
+      "\n"
+      "library neorv32;\n"
+      "use neorv32.neorv32_package.all;\n"
+      "\n"
+      "package neorv32_secure_boot_checker_verification_image is\n"
+      "\n",
+       compile_time);
+    fputs(tmp_string, vhd_fp);
 
     // Modulus: 2048 bits = 256 bytes = 512 hex digits
     fprintf(vhd_fp, "  constant rsa_modulus : std_logic_vector(2047 downto 0) := x\"%s\";\n", modulus_hex);

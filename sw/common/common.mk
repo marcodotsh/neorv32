@@ -78,16 +78,17 @@ CORE_SRC += $(NEORV32_COM_PATH)/crt0.S
 LD_SCRIPT ?= $(NEORV32_COM_PATH)/neorv32.ld
 
 # Main output files
-APP_EXE  = neorv32_exe.bin
-APP_ELF  = main.elf
-APP_HEX  = neorv32_raw_exe.hex
-APP_BIN  = neorv32_raw_exe.bin
-APP_COE  = neorv32_raw_exe.coe
-APP_MEM  = neorv32_raw_exe.mem
-APP_MIF  = neorv32_raw_exe.mif
-APP_ASM  = main.asm
-APP_VHD  = neorv32_application_image.vhd
-BOOT_VHD = neorv32_bootloader_image.vhd
+APP_EXE   = neorv32_exe.bin
+APP_ELF   = main.elf
+APP_HEX   = neorv32_raw_exe.hex
+APP_BIN   = neorv32_raw_exe.bin
+APP_COE   = neorv32_raw_exe.coe
+APP_MEM   = neorv32_raw_exe.mem
+APP_MIF   = neorv32_raw_exe.mif
+APP_ASM   = main.asm
+APP_VHD   = neorv32_application_image.vhd
+BOOT_VHD  = neorv32_bootloader_image.vhd
+VERIF_VHD = neorv32_secure_boot_checker_verification_image.vhd
 
 # Binary main file
 BIN_MAIN = $(BUILD_DIR)/main.bin
@@ -301,7 +302,7 @@ $(APP_MEM): $(BIN_MAIN) $(IMAGE_GEN)
 # Create local VHDL BOOTROM image
 bl_image: $(BIN_MAIN) $(IMAGE_GEN) $(PRIVATE_KEY)
 	$(Q)$(SET) -e
-	$(ECHO) "Generating $(BOOT_VHD)"
+	$(ECHO) "Generating $(BOOT_VHD) and $(VERIF_VHD)"
 	$(Q)$(IMAGE_GEN) -bld_vhd $< $(BOOT_VHD) $(shell basename $(CURDIR))
 
 # Install BOOTROM image to VHDL source directory
@@ -309,6 +310,8 @@ bootloader: bl_image
 	$(Q)$(SET) -e
 	$(ECHO) "Installing bootloader image to $(NEORV32_RTL_PATH)/core/$(BOOT_VHD)"
 	$(Q)$(CP) $(BOOT_VHD) $(NEORV32_RTL_PATH)/core/.
+	$(ECHO) "Installing verification image to $(NEORV32_RTL_PATH)/core/$(VERIF_VHD)"
+	$(Q)$(CP) $(VERIF_VHD) $(NEORV32_RTL_PATH)/core/.
 
 # -----------------------------------------------------------------------------
 # In-console simulation using default testbench and GHDL
