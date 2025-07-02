@@ -351,53 +351,66 @@ int main(int argc, char *argv[]) {
     sha256(input_buf, input_size, sha256_digest);
     free(input_buf);
 
+    // Print the computed SHA256 hash for troubleshooting
+    printf("SHA256 digest: ");
+    for (int j = 0; j < 8; j++) {
+      printf("%08x", sha256_digest[j]);
+    }
+    printf("\n");
+
     // After computing sha256_digest
-// Write digest to a temp file
-FILE *digest_file = fopen("sha256.bin", "wb");
-if (!digest_file) {
-  printf("Failed to open temp digest file!\n");
-  // handle error...
-}
-for (int j = 0; j < 8; j++) {
-  uint32_t word = sha256_digest[j];
-  fwrite(&word, sizeof(uint32_t), 1, digest_file);
-}
-fclose(digest_file);
+    // Write digest to a temp file
+    FILE *digest_file = fopen("sha256.bin", "wb");
+    if (!digest_file) {
+      printf("Failed to open temp digest file!\n");
+      // handle error...
+    }
+    for (int j = 0; j < 8; j++) {
+      uint32_t word = sha256_digest[j];
+      // Write digest as big-endian (network order) for OpenSSL
+      fputc((word >> 24) & 0xFF, digest_file);
+      fputc((word >> 16) & 0xFF, digest_file);
+      fputc((word >> 8) & 0xFF, digest_file);
+      fputc((word >> 0) & 0xFF, digest_file);
+    }
+    fclose(digest_file);
 
-// Sign the digest using openssl CLI
-char cmd[256];
-snprintf(cmd, sizeof(cmd),
-  "openssl dgst -sha256 -sign %s -out %s sha256.bin",
-  PRIVATE_KEY_FILE, SIGNATURE_FILE);
-int ret = system(cmd);
-if (ret != 0) {
-  printf("OpenSSL signing failed!\n");
-  // handle error...
-}
+    // Sign the digest using openssl CLI
+    char cmd[256];
+    snprintf(cmd, sizeof(cmd),
+      "openssl pkeyutl -sign -inkey %s -in sha256.bin -out %s -pkeyopt digest:sha256",
+      PRIVATE_KEY_FILE, SIGNATURE_FILE);
+    int ret = system(cmd);
+    if (ret != 0) {
+      printf("OpenSSL signing failed!\n");
+      // handle error...
+    }
 
-// Read the signature back
-FILE *sig_file = fopen(SIGNATURE_FILE, "rb");
-if (!sig_file) {
-  printf("Failed to open signature file!\n");
-  // handle error...
-}
-unsigned char signature[256]; // RSA2048 signature is 256 bytes
-size_t sig_len = fread(signature, 1, sizeof(signature), sig_file);
-fclose(sig_file);
+    // Read the signature back
+    FILE *sig_file = fopen(SIGNATURE_FILE, "rb");
+    if (!sig_file) {
+      printf("Failed to open signature file!\n");
+      // handle error...
+    }
+    unsigned char signature[256]; // RSA2048 signature is 256 bytes
+    size_t sig_len = fread(signature, 1, sizeof(signature), sig_file);
+    fclose(sig_file);
 
-// Clean up temp files
-unlink("sha256.bin");
-unlink(SIGNATURE_FILE);
+    // Clean up temp files
+    unlink("sha256.bin");
+    unlink(SIGNATURE_FILE);
 
-// Output the signature as hex words (or however you want)
-for (size_t k = 0; k < sig_len; k += 4) {
-  uint32_t word = 0;
-  for (int b = 0; b < 4 && (k + b) < sig_len; b++) {
-    word |= ((uint32_t)signature[k + b]) << (8 * b);
-  }
-  snprintf(tmp_string, sizeof(tmp_string), "x\"%08x\",\n", word);
-  fputs(tmp_string, output);
-}
+    // Output the signature as hex words, big-endian (OpenSSL output order)
+    for (size_t k = 0; k < sig_len; k += 4) {
+      uint32_t word = 0;
+      // Most significant byte first in each word
+      word |= ((uint32_t)signature[k + 0]) << 24;
+      word |= ((uint32_t)signature[k + 1]) << 16;
+      word |= ((uint32_t)signature[k + 2]) << 8;
+      word |= ((uint32_t)signature[k + 3]) << 0;
+      snprintf(tmp_string, sizeof(tmp_string), "x\"%08x\",\n", word);
+      fputs(tmp_string, output);
+    }
 
     // Output 9th word: input size in words
     snprintf(tmp_string, sizeof(tmp_string), "x\"%08x\" -- Bootloader code size\n", input_words);
