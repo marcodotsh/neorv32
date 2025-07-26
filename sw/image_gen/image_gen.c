@@ -13,8 +13,10 @@
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
-#include <crypto.h>
-#include <unistd.h>
+#include <openssl/sha.h>
+#include <openssl/pem.h>
+#include <openssl/rsa.h>
+#include <openssl/bn.h>
 
 #define PRIVATE_KEY_FILE "rsa_private.pem"
 #define SIGNATURE_FILE   "sha256.sig"
@@ -347,70 +349,122 @@ int main(int argc, char *argv[]) {
       fclose(output);
       return -6;
     }
-    uint32_t sha256_digest[8];
-    sha256(input_buf, input_size, sha256_digest);
+    unsigned char sha256_digest_bytes[SHA256_DIGEST_LENGTH];
+    SHA256(input_buf, input_size, sha256_digest_bytes);
     free(input_buf);
 
-    // Print the computed SHA256 hash for troubleshooting
-    printf("SHA256 digest: ");
-    for (int j = 0; j < 8; j++) {
-      printf("%08x", sha256_digest[j]);
+    printf("SHA-256 Digest: ");
+    for (int i = 0; i < SHA256_DIGEST_LENGTH; i++) {
+      printf("%02x", sha256_digest_bytes[i]);
     }
     printf("\n");
 
-    // After computing sha256_digest
-    // Write digest to a temp file
-    FILE *digest_file = fopen("sha256.bin", "wb");
-    if (!digest_file) {
-      printf("Failed to open temp digest file!\n");
-      // handle error...
+    // --- RSA signing ---
+    FILE *key_file = fopen(PRIVATE_KEY_FILE, "rb");
+    if (!key_file) {
+      fprintf(stderr, "ERROR: Cannot open private key file '%s'\n", PRIVATE_KEY_FILE);
+      return 1;
     }
-    for (int j = 0; j < 8; j++) {
-      uint32_t word = sha256_digest[j];
-      // Write digest as big-endian (network order) for OpenSSL
-      fputc((word >> 24) & 0xFF, digest_file);
-      fputc((word >> 16) & 0xFF, digest_file);
-      fputc((word >> 8) & 0xFF, digest_file);
-      fputc((word >> 0) & 0xFF, digest_file);
-    }
-    fclose(digest_file);
-
-    // Sign the digest using openssl CLI
-    char cmd[256];
-    snprintf(cmd, sizeof(cmd),
-      "openssl pkeyutl -sign -inkey %s -in sha256.bin -out %s -pkeyopt digest:sha256",
-      PRIVATE_KEY_FILE, SIGNATURE_FILE);
-    int ret = system(cmd);
-    if (ret != 0) {
-      printf("OpenSSL signing failed!\n");
-      // handle error...
+    EVP_PKEY *pkey = PEM_read_PrivateKey(key_file, NULL, NULL, NULL);
+    fclose(key_file);
+    if (!pkey) {
+      fprintf(stderr, "ERROR: Cannot read private key\n");
+      return 1;
     }
 
-    // Read the signature back
-    FILE *sig_file = fopen(SIGNATURE_FILE, "rb");
-    if (!sig_file) {
-      printf("Failed to open signature file!\n");
-      // handle error...
+    RSA *rsa = EVP_PKEY_get1_RSA(pkey);
+    if (!rsa) {
+      fprintf(stderr, "ERROR: Cannot get RSA key from EVP_PKEY\n");
+      EVP_PKEY_free(pkey);
+      return 1;
     }
-    unsigned char signature[256]; // RSA2048 signature is 256 bytes
-    size_t sig_len = fread(signature, 1, sizeof(signature), sig_file);
-    fclose(sig_file);
 
-    // Clean up temp files
-    unlink("sha256.bin");
-    unlink(SIGNATURE_FILE);
+    int key_bits = RSA_bits(rsa);
+    int key_bytes = RSA_size(rsa);
+    unsigned char *signature_buf = (unsigned char *)malloc(key_bytes);
+    if (!signature_buf) {
+        fprintf(stderr, "ERROR: Cannot allocate memory for signature\n");
+        free(signature_buf);
+        RSA_free(rsa);
+        EVP_PKEY_free(pkey);
+        return 1;
+    }
 
-    // Output the signature as hex words, big-endian (OpenSSL output order)
-    for (size_t k = 0; k < sig_len; k += 4) {
+    if (key_bits >= 512) {
+      // Use standard OpenSSL signing for keys >= 512 bits
+      unsigned int len;
+      if (RSA_sign(NID_sha256, sha256_digest_bytes, 32, signature_buf, &len, rsa) != 1) {
+        fprintf(stderr, "ERROR: RSA_sign failed\n");
+        free(signature_buf);
+        RSA_free(rsa);
+        EVP_PKEY_free(pkey);
+        return 1;
+      }
+    } else {
+      // Manual exponentiation for keys < 512 bits
+      const BIGNUM *n = NULL, *d = NULL;
+      RSA_get0_key(rsa, &n, NULL, &d);
+
+      // Create a BIGNUM for the padded hash
+      BIGNUM *padded_hash_bn = BN_new();
+      unsigned char* padded_hash_bytes = (unsigned char*)calloc(key_bytes, 1);
+      if (!padded_hash_bytes || !padded_hash_bn) {
+          fprintf(stderr, "ERROR: BIGNUM memory allocation failed\n");
+          free(signature_buf);
+          if (padded_hash_bytes) free(padded_hash_bytes);
+          if (padded_hash_bn) BN_free(padded_hash_bn);
+          RSA_free(rsa);
+          EVP_PKEY_free(pkey);
+          return 1;
+      }
+
+      // Copy hash to the LSBs of the padded buffer
+      memcpy(padded_hash_bytes + key_bytes - 32, sha256_digest_bytes, 32);
+
+      // Add padding: a single '1' bit at the MSB of the remaining space
+      padded_hash_bytes[0] = 0x01;
+
+      BN_bin2bn(padded_hash_bytes, key_bytes, padded_hash_bn);
+      free(padded_hash_bytes);
+
+      // Perform exponentiation: signature = padded_hash^d mod n
+      BIGNUM *res = BN_new();
+      BN_CTX *ctx = BN_CTX_new();
+      if (!res || !ctx) {
+          fprintf(stderr, "ERROR: BIGNUM memory allocation failed\n");
+          free(signature_buf);
+          BN_free(padded_hash_bn);
+          if (res) BN_free(res);
+          if (ctx) BN_CTX_free(ctx);
+          RSA_free(rsa);
+          EVP_PKEY_free(pkey);
+          return 1;
+      }
+      BN_mod_exp(res, padded_hash_bn, d, n, ctx);
+
+      // Convert result back to a big-endian byte array
+      BN_bn2bin(res, signature_buf);
+
+      BN_free(padded_hash_bn);
+      BN_free(res);
+      BN_CTX_free(ctx);
+    }
+
+    // Output the signature as hex words, big-endian
+    for (size_t k = 0; k < key_bytes; k += 4) {
       uint32_t word = 0;
-      // Most significant byte first in each word
-      word |= ((uint32_t)signature[k + 0]) << 24;
-      word |= ((uint32_t)signature[k + 1]) << 16;
-      word |= ((uint32_t)signature[k + 2]) << 8;
-      word |= ((uint32_t)signature[k + 3]) << 0;
+      // Handle potential partial last word
+      size_t bytes_to_read = (k + 4 <= key_bytes) ? 4 : key_bytes - k;
+      if (bytes_to_read >= 1) word |= ((uint32_t)signature_buf[k + 0]) << 24;
+      if (bytes_to_read >= 2) word |= ((uint32_t)signature_buf[k + 1]) << 16;
+      if (bytes_to_read >= 3) word |= ((uint32_t)signature_buf[k + 2]) << 8;
+      if (bytes_to_read >= 4) word |= ((uint32_t)signature_buf[k + 3]) << 0;
       snprintf(tmp_string, sizeof(tmp_string), "x\"%08x\",\n", word);
       fputs(tmp_string, output);
     }
+    free(signature_buf);
+    RSA_free(rsa);
+    EVP_PKEY_free(pkey);
 
     // Output 9th word: input size in words
     snprintf(tmp_string, sizeof(tmp_string), "x\"%08x\" -- Bootloader code size\n", input_words);
@@ -435,7 +489,7 @@ int main(int argc, char *argv[]) {
       fprintf(stderr, "ERROR: Could not extract modulus from rsa_public.pem\n");
       return 1;
     }
-    char modulus_hex[5200] = {0}; // Enough for 2048 bits (512 bytes) + null
+    char modulus_hex[5200] = {0}; // Enough for up to 4096 bits
     if (fgets(modulus_hex, sizeof(modulus_hex), fp) == NULL) {
       pclose(fp);
       fprintf(stderr, "ERROR: Could not read modulus from openssl output\n");
@@ -446,6 +500,11 @@ int main(int argc, char *argv[]) {
     // Remove newline if present
     size_t len = strlen(modulus_hex);
     if (len > 0 && modulus_hex[len-1] == '\n') modulus_hex[len-1] = 0;
+
+    // Dynamically determine modulus/KEY length in bits and bytes
+    size_t modulus_hex_digits = strlen(modulus_hex);
+    size_t modulus_bytes = modulus_hex_digits / 2;
+    size_t modulus_bits = modulus_bytes * 8;
 
     // Extract exponent (e) in decimal, then convert to hex
     fp = popen("openssl rsa -pubin -in rsa_public.pem -text -noout 2>/dev/null | grep 'Exponent:' | awk '{print $2}'", "r");
@@ -494,12 +553,12 @@ int main(int argc, char *argv[]) {
        compile_time);
     fputs(tmp_string, vhd_fp);
 
-    // Modulus: 2048 bits = 256 bytes = 512 hex digits
-    fprintf(vhd_fp, "  constant rsa_modulus : std_logic_vector(2047 downto 0) := x\"%s\";\n", modulus_hex);
+    // Modulus: dynamic bit width
+    fprintf(vhd_fp, "  constant rsa_modulus_c : std_ulogic_vector(%zu downto 0) := x\"%s\";\n", modulus_bits-1, modulus_hex);
 
     // Exponent: variable size, but usually 3 or 65537
     int exp_bits = strlen(exponent_hex) * 4;
-    fprintf(vhd_fp, "  constant rsa_public_exponent : std_logic_vector(%d downto 0) := x\"%s\";\n", exp_bits-1, exponent_hex);
+    fprintf(vhd_fp, "  constant rsa_public_exponent_c : std_ulogic_vector(%d downto 0) := x\"%s\";\n", exp_bits-1, exponent_hex);
 
     fprintf(vhd_fp, "end neorv32_secure_boot_checker_verification_image;\n");
     fclose(vhd_fp);

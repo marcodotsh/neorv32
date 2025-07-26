@@ -67,7 +67,7 @@
 
 // Enable auto-boot
 #ifndef AUTO_BOOT_EN
-#define AUTO_BOOT_EN 1
+#define AUTO_BOOT_EN 0
 #endif
 
 // Time until the auto-boot sequence starts (in seconds)
@@ -81,7 +81,7 @@
 
 // Enable SPI (default) including SPI flash boot options
 #ifndef SPI_EN
-#define SPI_EN 1
+#define SPI_EN 0
 #endif
 
 // SPI flash chip select

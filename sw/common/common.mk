@@ -152,6 +152,7 @@ NEO_ASFLAGS  = $(CC_FLAGS) $(ASFLAGS)
 KEY_DIR := $(NEORV32_BTL_PATH)
 PRIVATE_KEY := $(KEY_DIR)/rsa_private.pem
 PUBLIC_KEY  := $(KEY_DIR)/rsa_public.pem
+RSA_KEYLEN ?= 288
 
 # -----------------------------------------------------------------------------
 # Application output definitions
@@ -198,15 +199,15 @@ endif
 
 # RSA keypair generation
 $(PRIVATE_KEY):
-	$(Q)openssl genpkey -algorithm RSA -out $(PRIVATE_KEY) -pkeyopt rsa_keygen_bits:2048
+	$(Q)openssl genrsa -out $(PRIVATE_KEY) $(RSA_KEYLEN) 
 
 $(PUBLIC_KEY): $(PRIVATE_KEY)
 	$(Q)openssl rsa -pubout -in $(PRIVATE_KEY) -out $(PUBLIC_KEY)
 
 # Compile image generator
-$(IMAGE_GEN): $(NEORV32_EXG_PATH)/image_gen.c $(NEORV32_SRC_PATH)/crypto.c
+$(IMAGE_GEN): $(NEORV32_EXG_PATH)/image_gen.c
 	$(ECHO) Compiling image generator...
-	$(Q)$(CC_HOST) -I $(NEORV32_INC_PATH) $^ -o $(IMAGE_GEN)
+	$(Q)$(CC_HOST) -I $(NEORV32_INC_PATH) $^ -o $(IMAGE_GEN) -lssl -lcrypto
 
 # -----------------------------------------------------------------------------
 # General targets: Assemble, compile, link, dump
