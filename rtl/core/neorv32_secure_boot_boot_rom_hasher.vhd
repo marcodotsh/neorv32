@@ -52,10 +52,13 @@ architecture neorv32_secure_boot_boot_rom_hasher_rtl of neorv32_secure_boot_boot
   signal done_reg    : std_ulogic;
 
   -- internal signals
-  signal addr_reg          : std_ulogic_vector(31 downto 0) := (others => '0');
-  signal read_data_reg     : std_ulogic_vector(31 downto 0);
-  signal hash_tail_wire    : std_ulogic_vector(63 downto 0); -- size of the bootloader to write in last padded block
-  signal msg_block_buf_reg : std_ulogic_vector(0 to (16 * WORD_SIZE) - 1);
+  signal addr_reg               : std_ulogic_vector(31 downto 0) := (others => '0');
+  signal read_data_reg          : std_ulogic_vector(31 downto 0);
+  signal read_data_reverse_wire : std_ulogic_vector(31 downto 0);
+  signal hash_tail_wire         : std_ulogic_vector(63 downto 0); -- size of the bootloader to write in last padded block
+  type msg_block_array_t is array (0 to 15) of std_ulogic_vector(WORD_SIZE - 1 downto 0);
+  signal msg_block_buf_reg  : msg_block_array_t;
+  signal msg_block_buf_wire : std_ulogic_vector(0 to 16 * WORD_SIZE - 1);
 
   -- signals from sha256 core
   signal block_waiting_wire : std_ulogic;
@@ -77,10 +80,22 @@ begin
       block_valid_i   => block_valid_reg,
       block_process_o => block_process_wire,
       n_blocks_i      => n_blocks_wire,
-      msg_block_i     => msg_block_buf_reg,
+      msg_block_i     => msg_block_buf_wire,
       done_o          => finished_wire,
       data_o          => hash_o
     );
+
+  gen_read_reverse_wire_i : for i in 0 to 3 generate
+    gen_read_reverse_wire_j : for j in 0 to 7 generate
+      read_data_reverse_wire(8 * i + j) <= read_data_reg(8 * i + (7 - j));
+    end generate;
+  end generate;
+
+  gen_block_buf_wire_i : for i in 0 to 15 generate
+    gen_block_buf_wire_j : for j in 0 to WORD_SIZE - 1 generate
+      msg_block_buf_wire(WORD_SIZE * i + j) <= msg_block_buf_reg(i)(j);
+    end generate;
+  end generate;
 
   --change state logic
   process (clk_i, rst_i)
@@ -184,7 +199,7 @@ begin
       addr_reg                   <= (others => '0');
       read_data_reg              <= (others => '0');
       block_valid_reg            <= '0';
-      msg_block_buf_reg          <= (others => '0');
+      msg_block_buf_reg          <= (others => (others => '0'));
       words_in_block_counter_reg <= (others => '0');
       blocks_counter_reg         <= (others => '0');
     elsif (rising_edge(clk_i)) then
@@ -195,7 +210,7 @@ begin
           addr_reg                   <= (others => '0');
           read_data_reg              <= (others => '0');
           block_valid_reg            <= '0';
-          msg_block_buf_reg          <= (others => '0');
+          msg_block_buf_reg          <= (others => (others => '0'));
           words_in_block_counter_reg <= (others => '0');
           blocks_counter_reg         <= (others => '0');
         when IDLE                             =>
@@ -204,8 +219,8 @@ begin
           addr_reg          <= (others => '0');
           read_data_reg     <= (others => '0');
           block_valid_reg   <= '0';
-          msg_block_buf_reg <= (others => '0');
-        when CHECK_INPUT_END         =>
+          msg_block_buf_reg <= (others => (others => '0'));
+        when CHECK_INPUT_END =>
           null;
         when MEM_REQ =>
           bus_req_reg.addr  <= std_ulogic_vector(unsigned(base_io_bootrom_c) + unsigned(addr_reg));
@@ -230,7 +245,7 @@ begin
           addr_reg <= std_ulogic_vector(unsigned(addr_reg) + 4);
           for i in 0 to 3 loop
             for j in 0 to 7 loop
-              msg_block_buf_reg(to_integer(32 * unsigned(words_in_block_counter_reg) + 8 * i + j)) <= read_data_reg(8 * i + (7 - j));
+              msg_block_buf_reg(to_integer(unsigned(words_in_block_counter_reg))) <= read_data_reverse_wire;
             end loop;
           end loop;
           if (unsigned(words_in_block_counter_reg) = unsigned(words_in_block_count_limit_c) - 1) then
@@ -247,10 +262,10 @@ begin
           block_valid_reg <= '0';
           if (block_process_wire = '1') then
             words_in_block_counter_reg <= (others => '0');
-            msg_block_buf_reg          <= (others => '0'); -- Clear buffer after processing
+            msg_block_buf_reg          <= (others => (others => '0')); -- Clear buffer after processing
           end if;
         when PAD_ONE_BIT =>
-          msg_block_buf_reg(to_integer(32 * unsigned(words_in_block_counter_reg))) <= '1';
+          msg_block_buf_reg(to_integer(unsigned(words_in_block_counter_reg)))(0) <= '1';
         when CHECK_LAST_BLOCK =>
           null;
         when SEND_BLOCK_AFTER_PAD =>
@@ -262,11 +277,11 @@ begin
           block_valid_reg <= '0';
           if (block_process_wire = '1') then
             words_in_block_counter_reg <= (others => '0');
-            msg_block_buf_reg          <= (others => '0'); -- Clear buffer after processing
+            msg_block_buf_reg          <= (others => (others => '0')); -- Clear buffer after processing
           end if;
         when ADD_TAIL =>
           for i in 0 to 63 loop
-            msg_block_buf_reg(14 * 32 + i) <= hash_tail_wire(63 - i);
+            msg_block_buf_reg(14 + i / 32)(i mod 32) <= hash_tail_wire(63 - i);
           end loop;
         when DONE_STATE =>
           bus_req_reg.stb <= '0';
@@ -280,6 +295,6 @@ begin
   bus_req_o      <= bus_req_reg;
   done_o         <= done_reg;
   n_blocks_wire  <= std_ulogic_vector(shift_right(unsigned(words_to_read_i) + to_unsigned(2, words_to_read_i'length), 4) + to_unsigned(1, words_to_read_i'length)); --padded blocks to hash
-  hash_tail_wire <= std_ulogic_vector("000000000000000000000000000" & unsigned(words_to_read_i) & "00000"); --bit from 32 bit words
+  hash_tail_wire <= std_ulogic_vector(shift_left(resize(unsigned(words_to_read_i), 64), 5)); --bit from 32 bit words
 
 end architecture;

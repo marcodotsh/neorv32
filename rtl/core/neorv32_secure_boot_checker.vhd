@@ -42,11 +42,11 @@ architecture neorv32_secure_boot_checker_rtl of neorv32_secure_boot_checker is
   signal current_state, next_state : state_t;
 
   -- RSA component signals
-  signal rsa_start_reg    : std_ulogic;
-  signal rsa_done_wire    : std_ulogic;
-  signal rsa_base_reg     : std_ulogic_vector(RSA_KEY_SIZE - 1 downto 0);
-  signal rsa_exponent_reg : std_ulogic_vector(19 downto 0);
-  signal rsa_result_wire  : std_ulogic_vector(RSA_KEY_SIZE - 1 downto 0);
+  signal rsa_start_reg : std_ulogic;
+  signal rsa_done_wire : std_ulogic;
+  type word_array_t is array (0 to RSA_KEY_SIZE/32 - 1) of std_ulogic_vector(31 downto 0);
+  signal rsa_base_reg    : word_array_t;
+  signal rsa_result_wire : std_ulogic_vector(RSA_KEY_SIZE - 1 downto 0);
 
   -- Hasher component signals
   signal hasher_start_reg         : std_ulogic;
@@ -61,8 +61,13 @@ architecture neorv32_secure_boot_checker_rtl of neorv32_secure_boot_checker is
   signal hasher_bus_req_wire : bus_req_t;
 
   signal cpu_rstn_wire : std_ulogic;
+  signal rsa_base_wire : std_ulogic_vector(RSA_KEY_SIZE - 1 downto 0);
 
 begin
+
+  gen_flatten_rsa_base : for i in 0 to RSA_KEY_SIZE/32 - 1 generate
+    rsa_base_wire((i + 1) * 32 - 1 downto i * 32) <= rsa_base_reg(i);
+  end generate;
 
   rsa_inst : entity neorv32.neorv32_secure_boot_rsa
     generic map(
@@ -73,8 +78,8 @@ begin
       clk_i      => clk_i,
       rstn_i     => rstn_i,
       start_i    => rsa_start_reg,
-      base_i     => rsa_base_reg,
-      exponent_i => rsa_exponent_reg,
+      base_i     => rsa_base_wire,
+      exponent_i => rsa_public_exponent_c,
       modulus_i  => rsa_modulus_c,
       result_o   => rsa_result_wire,
       done_o     => rsa_done_wire
@@ -164,16 +169,15 @@ begin
       rsa_start_reg            <= '0';
       hasher_start_reg         <= '0';
       addr_cnt_reg             <= 0;
-      rsa_base_reg             <= (others => '0');
+      rsa_base_reg             <= (others => (others => '0'));
       length_reg               <= (others => '0');
       bus_req_reg              <= req_terminate_c;
-      rsa_exponent_reg         <= (others => '0');
       hasher_words_to_read_reg <= (others => '0');
     elsif rising_edge(clk_i) then
       case current_state is
         when IDLE =>
           addr_cnt_reg <= 0;
-          rsa_base_reg <= (others => '0');
+          rsa_base_reg <= (others => (others => '0'));
           length_reg   <= (others => '0');
           bus_req_reg  <= req_terminate_c;
 
@@ -183,16 +187,15 @@ begin
 
         when READ_SIGNATURE_RSP =>
           if bus_rsp_i.ack = '1' then
-            bus_req_reg.stb                                                                                                      <= '0';
-            rsa_base_reg(((RSA_KEY_SIZE/32) - 1 - addr_cnt_reg + 1) * 32 - 1 downto ((RSA_KEY_SIZE/32) - 1 - addr_cnt_reg) * 32) <= bus_rsp_i.data; -- Write directly to rsa_base_reg
+            bus_req_reg.stb                                    <= '0';
+            rsa_base_reg((RSA_KEY_SIZE/32) - 1 - addr_cnt_reg) <= bus_rsp_i.data; -- Write directly to rsa_base_reg
             if addr_cnt_reg < (RSA_KEY_SIZE/32) - 1 then
               addr_cnt_reg <= addr_cnt_reg + 1;
             end if;
           end if;
 
         when START_RSA =>
-          rsa_start_reg    <= '1';
-          rsa_exponent_reg <= rsa_public_exponent_c;
+          rsa_start_reg <= '1';
 
         when READ_BOOTLOADER_LENGTH_REQ =>
           bus_req_reg.addr <= std_ulogic_vector(to_unsigned((boot_rom_size_c - 1) * 4, 32));
