@@ -32,13 +32,13 @@ void delay_ms(uint32_t time_ms) {
   uint32_t iterations = (uint32_t)(wait_cycles >> 4);
 
   asm volatile (
-    " __neorv32_aux_delay_ms_start:                   \n"
-    " beq  %[cnt_r], zero, __neorv32_aux_delay_ms_end \n" // 3 cycles (if not taken)
-    " bne  zero,     zero, __neorv32_aux_delay_ms_end \n" // 3 cycles (never taken)
-    " addi %[cnt_w], %[cnt_r], -1                     \n" // 2 cycles
-    " nop                                             \n" // 2 cycles
-    " j    __neorv32_aux_delay_ms_start               \n" // 6 cycles
-    " __neorv32_aux_delay_ms_end:                     \n"
+    "0:                                             \n"
+    "  beq  %[cnt_r], zero, 1f                      \n" // 3 cycles (if not taken)
+    "  bne  zero, zero, 1f                          \n" // 3 cycles (never taken)
+    "  addi %[cnt_w], %[cnt_r], -1                  \n" // 2 cycles
+    "  nop                                          \n" // 2 cycles
+    "  j    0b                                      \n" // 6 cycles
+    "1:                                             \n"
     : [cnt_w] "=r" (iterations) : [cnt_r] "r" (iterations)
   );
 }
