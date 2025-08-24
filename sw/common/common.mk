@@ -261,7 +261,7 @@ $(APP_EXE): $(BIN_MAIN) $(IMAGE_GEN)
 	$(Q)$(WC) -c < $(APP_EXE)
 
 # Generate NEORV32 executable VHDL boot image
-$(APP_VHD): $(BIN_MAIN) $(IMAGE_GEN) $(PRIVATE_KEY)
+$(APP_VHD): $(BIN_MAIN) $(IMAGE_GEN) $(PRIVATE_KEY) $(PUBLIC_KEY)
 	$(Q)$(SET) -e
 	$(ECHO) "Generating $(APP_VHD)"
 	$(Q)$(IMAGE_GEN) -app_vhd $< $@ $(shell basename $(CURDIR))
@@ -301,7 +301,7 @@ $(APP_MEM): $(BIN_MAIN) $(IMAGE_GEN)
 # -----------------------------------------------------------------------------
 
 # Create local VHDL BOOTROM image
-bl_image: $(BIN_MAIN) $(IMAGE_GEN) $(PRIVATE_KEY)
+bl_image: $(BIN_MAIN) $(IMAGE_GEN) $(PRIVATE_KEY) $(PUBLIC_KEY)
 	$(Q)$(SET) -e
 	$(ECHO) "Generating $(BOOT_VHD) and $(VERIF_VHD)"
 	$(Q)$(IMAGE_GEN) -bld_vhd $< $(BOOT_VHD) $(shell basename $(CURDIR))
